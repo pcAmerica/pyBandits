@@ -1,6 +1,6 @@
 #!/bin/bash
 # Generate test data
-python -m unittest bandits
+python -m unittest test_bandits
 
 # Generate graphs using R
 Rscript r/epsilon_greedy/plot_standard.R
