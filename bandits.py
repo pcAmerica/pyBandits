@@ -59,9 +59,10 @@ class UCB1(object):
     executed, the better this algorithm will be able to discard
     underperforming arms.
 
-    :param counts: List of counts of the number of times an option/arm
-                   has been explored
-    :param values: List of values mapping to the arms
+    :param counts: List of Integer counts of the number of times an
+                   option/arm has been explored
+    :param values: List of Float values defining the average amount of
+                   reward from each arm
     """
     def __init__(self, counts=None, values=None):
         self.counts = counts if counts is not None else []
@@ -70,6 +71,8 @@ class UCB1(object):
 
     def initialize(self, n_arms):
         """
+        Initialize each arm in experiment
+
         :param n_arms: Number of arms in experiment
         :returns: None
         """
@@ -91,7 +94,7 @@ class UCB1(object):
         Over time, the probability of selecting the "best" arm improve,
         but the initial runs will vary wildly.
 
-        :returns: Arm index of the largest expected reward
+        :returns: Arm index of the largest average reward
         """
         n_arms = len(self.counts)
 
@@ -102,15 +105,11 @@ class UCB1(object):
         ucb_values = [0.0] * n_arms
         total_counts = sum(self.counts)
 
-        # First pass
         # Calculate a list of upper confidence bound values
         for arm in range(n_arms):
             bonus = math.sqrt((2 * math.log(total_counts)) / float(self.counts[arm]))
             ucb_values[arm] = self.values[arm] + bonus
 
-        # Same, possibly too clever
-        # ucb_values = [math.sqrt((2 * math.log(total_counts)) / float(count)) + value
-        #                 for (count, value) in zip(self.counts, self.values)]
         return max_index(ucb_values)
 
 
@@ -135,6 +134,12 @@ class EpsilonGreedy(object):
     but sometimes explores other options. Epsilon refers to the odds
     that the algorithm explores instead of exploits.
 
+    The performance of this algorithm depends upon the epsilon value. In
+    general, a high epsilon value will explore a lot to find the best
+    option quickly, but it keeps exploring even after it is not worth
+    doing so. In contrast, a low epsilon takes longer to explore, but
+    eventually has a higher probability of selecting the best option.
+
     :param epsilon: Probability between 0.0 and 1.0 that the algorithm
                     will choose to *explore* available options.
                     Epsilon 0.1 means that the algorithm will explore
@@ -145,9 +150,10 @@ class EpsilonGreedy(object):
                     more often.
                     If None, this algorithm will gradually explore less
                     over time (anneal)
-    :param counts: List of counts of the number of times an option/arm
-                   has been explored
-    :param values: List of values mapping to the arms
+    :param counts: List of Integer counts of the number of times an
+                   option/arm has been explored
+    :param values: List of Float values defining the average amount of
+                   reward from each arm
 
     """
     def __init__(self, epsilon=None, counts=None, values=None):
@@ -158,6 +164,8 @@ class EpsilonGreedy(object):
 
     def initialize(self, n_arms):
         """
+        Initialize each arm in experiment
+
         :param n_arms: Number of arms in experiment
         :returns: None
         """
@@ -168,12 +176,14 @@ class EpsilonGreedy(object):
     def select_arm(self):
         """
         Select an arm number with the highest expectation for reward
+
         The annealing algorithm will use an epsilon that gradually
         moves closer to 0 as the simulation progresses, meaning that the
         selected arms are more likely to exploit known good options
         rather than explore.
 
-        :returns: Arm index of the largest expected reward
+        :returns: Arm index of the largest average reward (exploit),
+                  or random arm index (explore)
         """
         epsilon = self.epsilon
         if epsilon is None:
@@ -185,6 +195,7 @@ class EpsilonGreedy(object):
         else:
             return random.randrange(len(self.values))
 
+
     def update(self, chosen_arm, reward):
         """
         Update the algorithm reward stats for the chosen arm
@@ -192,8 +203,7 @@ class EpsilonGreedy(object):
         :param chosen_arm: Integer of chosen arm
         :param reward: Reward value to assign to chosen arm
         """
-        self.counts[chosen_arm] = self.counts[chosen_arm] + 1
-        n = self.counts[chosen_arm]
+        n = self.counts[chosen_arm] = self.counts[chosen_arm] + 1
 
         value = self.values[chosen_arm]
         new_value = ((n - 1) / float(n)) * value + (1 / float(n)) * reward
@@ -205,11 +215,21 @@ class BernoulliArm(object):
     """
     A Bernoulli arm returns 1 with probability p and 0 with
     probability 1-p
+
+    Used to simulate binary rewards, e.g clickthroughs, signups, etc.
+
+    If `p` is 0.2, then there is a 20% probability that a reward of 1
+    (success) is returned
+
+    :param p: Float probability between 0.0 and 1.0
     """
     def __init__(self, p):
         self.p = p
 
     def draw(self):
+        """
+        Simulate "playing" a specific arm to return a reward (or not)
+        """
         if random.random() > self.p:
             return 0.0
         else:
@@ -225,17 +245,28 @@ class BanditTestCase(unittest.TestCase):
     graphs using R scripts in the r directory. Graphs can be created
     by executing the `generate_plots.sh` script
     """
-    def make_arms(self):
+    def make_arms(self, means=None):
         """
         Return a list of simulated arms that reward with a value of 1
         some percentage of the time and rewards with a value of 0 the
         rest.
 
+        The default is a very simple scenario:
+            4 arms output a reward 10% of the time
+            1 arm (the best arm) outputs a reward 90% of the time.
+
+        A test might want to consider other scenarios and provide
+        different expected reward probabilities
+
+        :param means: List of floats bet/ 0.0 and 1.0 representing arms
+                      and the probability they will output a reward
         """
         # Init pseudorandom generator to produce same expected values
         random.seed(1)
-        means = [0.1, 0.1, 0.1, 0.1, 0.9]
-        random.shuffle(means)
+        if means is None:
+            means = [0.1, 0.1, 0.1, 0.1, 0.9]
+
+        #random.shuffle(means)
 
         arms = [BernoulliArm(mu) for mu in means]
         return arms
@@ -251,11 +282,11 @@ class BanditTestCase(unittest.TestCase):
         :param horizon: Integer number of times each `algo` is allowed to
                         pull on arms during each simulation
         """
-        chosen_arms = [0.0] * num_sims * horizon
+        sim_nums = [0] * num_sims * horizon
+        times = [0] * num_sims * horizon
+        chosen_arms = [0] * num_sims * horizon
         rewards = [0.0] * num_sims * horizon
         cumulative_rewards = [0.0] * num_sims * horizon
-        sim_nums = [0.0] * num_sims * horizon
-        times = [0.0] * num_sims * horizon
 
         for sim in range(num_sims):
             sim = sim + 1
@@ -268,15 +299,16 @@ class BanditTestCase(unittest.TestCase):
                 times[index] = t
 
                 chosen_arm = algo.select_arm()
-                chosen_arms[index] = chosen_arm
+                # R scripts expect arms to be 1-based
+                chosen_arms[index] = chosen_arm + 1
 
-                reward = arms[chosen_arms[index]].draw()
+                reward = arms[chosen_arm].draw()
                 rewards[index] = reward
 
                 if t == 1:
-                  cumulative_rewards[index] = reward
+                    cumulative_rewards[index] = reward
                 else:
-                  cumulative_rewards[index] = cumulative_rewards[index - 1] + reward
+                    cumulative_rewards[index] = cumulative_rewards[index - 1] + reward
 
                 algo.update(chosen_arm, reward)
 
